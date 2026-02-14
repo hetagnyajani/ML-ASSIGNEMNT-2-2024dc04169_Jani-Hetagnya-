@@ -51,22 +51,22 @@ In this project, six different machine learning classification algorithms were i
 
 -> Models Implemented
 
-1. Logistic Regression
+1. Logistic Regression:
 A linear model used for binary classification problems. It estimates the probability of a class using the logistic (sigmoid) function.
 
-2. Decision Tree Classifier
+2. Decision Tree Classifier:
 A tree-based model that splits data based on feature values to make classification decisions.
 
-3. k-Nearest Neighbors (kNN)
+3. k-Nearest Neighbors (kNN):
 A distance-based algorithm that classifies a data point based on the majority class among its nearest neighbors.
 
-4. Naive Bayes (GaussianNB)
+4. Naive Bayes (GaussianNB):
 A probabilistic classifier based on Bayes’ Theorem with an assumption of feature independence.
 
-5. Random Forest Classifier
+5. Random Forest Classifier:
 An ensemble learning method that builds multiple decision trees and combines their outputs for better accuracy and reduced overfitting.
 
-6. XGBoost Classifier
+6. XGBoost Classifier:
 An advanced gradient boosting algorithm that builds trees sequentially to improve performance and handle complex patterns.
 
 ## Evaluation Metrics
