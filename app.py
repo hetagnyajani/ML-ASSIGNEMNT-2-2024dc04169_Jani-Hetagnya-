@@ -1,119 +1,225 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import time
+import os
 import joblib
 import plotly.express as px
 
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score,
+    precision_score, recall_score,
+    f1_score, matthews_corrcoef,
+    confusion_matrix
+)
+
+# -----------------------------
+# Page Config
+# -----------------------------
+st.set_page_config(page_title="Bank Marketing ML App", layout="wide")
 st.title("Bank Marketing Classification System")
 
 # -----------------------------
-# Upload Dataset
+# CSS
 # -----------------------------
-uploaded_file = st.file_uploader("Upload CSV Test Data", type=["csv"])
+st.markdown(
+    """
+    <style>
+    div[data-baseweb="select"] > div { cursor: pointer !important; }
+    .cm-card {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #e0e0e0;
+        width: fit-content;
+        margin: auto;
+    }
+    button[title="View fullscreen"] {
+        display: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-if uploaded_file:
-    data = pd.read_csv(uploaded_file)
-    st.success(f"Loaded dataset with {data.shape[0]} rows and {data.shape[1]} features")
+# Upload Dataset
+uploaded_file = st.file_uploader(
+    "Upload Dataset",
+    type=["csv"]
+)
 
-    # -----------------------------
-    # Select model
-    # -----------------------------
-    model_name = st.selectbox(
-        "Select Model",
-        [
-            "Logistic_Regression",
-            "Decision_Tree",
-            "kNN",
-            "Naive_Bayes",
-            "Random_Forest",
-            "XGBoost"
-        ]
+if uploaded_file is None:
+    st.info("Please upload a dataset to begin")
+    st.stop()
+
+success = st.empty()
+success.success("Dataset uploaded successfully")
+time.sleep(1)
+success.empty()
+
+df = pd.read_csv(uploaded_file)
+
+# Target encoding
+df["deposit"] = df["deposit"].map({"yes": 1, "no": 0})
+
+X = df.drop("deposit", axis=1)
+y = df["deposit"]
+
+categorical_cols = X.select_dtypes(include="object").columns
+numerical_cols = X.select_dtypes(include=["int64", "float64"]).columns
+
+# Preprocessing
+preprocessor = ColumnTransformer(
+    [
+        ("num", StandardScaler(), numerical_cols),
+        ("cat", OneHotEncoder(drop="first", handle_unknown="ignore"), categorical_cols)
+    ]
+)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+X_train_p = preprocessor.fit_transform(X_train)
+X_test_p = preprocessor.transform(X_test)
+
+# Model Selection
+st.subheader("🔍 Select Model")
+
+model_name = st.selectbox(
+    "Choose Model",
+    [
+        "Logistic Regression",
+        "Decision Tree",
+        "kNN",
+        "Naive Bayes",
+        "Random Forest",
+        "XGBoost"
+    ]
+)
+
+# Initialize Model
+if model_name == "Logistic Regression":
+    model = LogisticRegression(max_iter=1000)
+
+elif model_name == "Decision Tree":
+    model = DecisionTreeClassifier(random_state=42)
+
+elif model_name == "kNN":
+    model = KNeighborsClassifier(n_neighbors=7, weights="distance")
+
+elif model_name == "Naive Bayes":
+    model = GaussianNB()
+
+elif model_name == "Random Forest":
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+
+elif model_name == "XGBoost":
+    model = XGBClassifier(
+        use_label_encoder=False,
+        eval_metric="logloss",
+        random_state=42
     )
 
-    # -----------------------------
-    # Run prediction inside a spinner
-    # -----------------------------
-    with st.spinner(f"Loading {model_name} and making predictions..."):
-        # Load preprocessor
-        preprocessor = joblib.load("model/preprocessor.pkl")
-        X_processed = preprocessor.transform(data)
+# Train & Predict
+with st.spinner("Training model..."):
 
-        # Handle GaussianNB dense conversion
-        if model_name == "Naive_Bayes":
-            X_processed = X_processed.toarray() if hasattr(X_processed, "toarray") else X_processed
+    if model_name in ["Naive Bayes", "Random Forest", "XGBoost"]:
+        X_train_use = X_train_p.toarray()
+        X_test_use = X_test_p.toarray()
+    else:
+        X_train_use = X_train_p
+        X_test_use = X_test_p
 
-        # Load model
-        model = joblib.load(f"model/{model_name}.pkl")
+    model.fit(X_train_use, y_train)
+    y_pred = model.predict(X_test_use)
+    y_prob = model.predict_proba(X_test_use)[:, 1]
 
-        # Predict probabilities
-        if hasattr(model, "predict_proba"):
-            prob = model.predict_proba(X_processed)[:, 1]
-        else:
-            prob = [None] * len(data)
+# Save Artifacts
+os.makedirs("model", exist_ok=True)
 
-        predictions = model.predict(X_processed)
+model_path = f"model/{model_name.replace(' ', '_')}.pkl"
+joblib.dump(model, model_path)
+joblib.dump(preprocessor, "model/preprocessor.pkl")
 
-        # Combine predictions & probability
-        results_df = pd.DataFrame({
-            "Prediction": predictions,
-            "Probability_Deposit_Yes": prob
-        })
+st.success(f"{model_name} trained successfully")
+st.caption(f"Saved at: {model_path}")
 
-    # -----------------------------
-    # Display table nicely
-    # -----------------------------
-    st.subheader("Predictions with Probabilities")
 
-    def color_gradient(val):
-        if val is None:
-            return ''
-        
-        if val <= 0.5:
-            red = 255
-            green = int((val / 0.5) * 255)
-        else:
-            red = int((1 - (val - 0.5)/0.5) * 255)
-            green = 255
-        return f'background-color: rgb({red}, {green}, 0); color: black; text-align: center'
+# Evaluation Metrics
+st.subheader(f"Model Evaluation Metrics – {model_name}")
 
-    styled_df = results_df.style.applymap(
-        color_gradient,
-        subset=['Probability_Deposit_Yes']
-    ).set_properties(**{'text-align': 'center'}).format(
-        {"Probability_Deposit_Yes": "{:.2f}"}
-    )
+metrics_df = pd.DataFrame({
+    "Metric": ["Accuracy", "AUC", "Precision", "Recall", "F1 Score", "MCC"],
+    "Value": [
+        accuracy_score(y_test, y_pred),
+        roc_auc_score(y_test, y_prob),
+        precision_score(y_test, y_pred),
+        recall_score(y_test, y_pred),
+        f1_score(y_test, y_pred),
+        matthews_corrcoef(y_test, y_pred)
+    ]
+})
 
-    st.dataframe(styled_df, height=400)
+st.table(metrics_df.style.format({"Value": "{:.4f}"}))
 
-    st.markdown("""
-    **Color Gradient Explanation:**  
-    - 🟥 Red shades → Low probability  
-    - 🟨 Yellow shades → Medium probability  
-    - 🟩 Green shades → High probability
-    """)
+# Confusion Matrix
+st.subheader(f"Confusion Matrix – {model_name}")
 
-    # -----------------------------
-    # Probability Distribution (Improved Visualization)
-    # -----------------------------
-    st.subheader("Prediction Probability Distribution")
+cm = confusion_matrix(y_test, y_pred)
 
-    fig = px.histogram(
-        results_df,
-        x="Probability_Deposit_Yes",
-        nbins=30,
-        title="Prediction Probability Distribution",
-        labels={
-            "Probability_Deposit_Yes": "Probability of Deposit = Yes"
-        },
-        opacity=0.8
-    )
+st.markdown('<div class="cm-card">', unsafe_allow_html=True)
+fig, ax = plt.subplots(figsize=(2.5, 2.5))
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt="d",
+    cmap="Reds",
+    xticklabels=["No", "Yes"],
+    yticklabels=["No", "Yes"],
+    cbar=False,
+    ax=ax
+)
+ax.set_xlabel("Predicted")
+ax.set_ylabel("Actual")
+st.pyplot(fig, use_container_width=False)
+st.markdown('</div>', unsafe_allow_html=True)
 
-    fig.update_layout(
-        xaxis_title="Predicted Probability",
-        yaxis_title="Number of Customers",
-        bargap=0.05
-    )
+# Prediction Probability Distribution
+st.subheader(f"Prediction Probability Distribution – {model_name}")
 
-    st.plotly_chart(fig, use_container_width=True)
+results_df = X_test.copy()
+results_df["Actual_Deposit"] = y_test.values
+results_df["Predicted_Deposit"] = y_pred
+results_df["Probability_Deposit_Yes"] = y_prob
 
-else:
-    st.info("Please upload a CSV file to continue.")
+fig = px.histogram(
+    results_df,
+    x="Probability_Deposit_Yes",
+    nbins=30,
+    title=f"Prediction Probability Distribution for {model_name}",
+    labels={
+        "Probability_Deposit_Yes": "Probability of Deposit = Yes"
+    },
+    opacity=0.8
+)
+
+fig.update_layout(
+    xaxis_title="Predicted Probability",
+    yaxis_title="Number of Customers",
+    bargap=0.1
+)
+
+st.plotly_chart(fig, use_container_width=True)
